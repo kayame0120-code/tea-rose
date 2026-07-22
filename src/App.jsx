@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { createId, createInitialData, normaliseData } from './data.js'
 import { convertImageToJpeg } from './image.js'
-import { loadData, saveData } from './storage.js'
+import { clearData, loadData, saveData } from './storage.js'
 
 const DAYS = ['きょう', 'きのう', '7月16日', '7月14日', '7月10日']
 const SAVE_ERROR = '保存容量がいっぱいです。写真を減らしてください'
@@ -16,7 +16,7 @@ const TEXT_COLORS = [
 ]
 const ALBUM_ICONS = ['📖', '🎬', '🎮', '🎤', '🎧', '📷', '✈', '🗻', '🌊', '🌸', '🍁', '⛄', '⭐', '🌙', '☕', '🍰', '🍞', '🍜', '🍚', '🍣', '🎁', '💄', '🐱', '🐾']
 
-function PhotoArt({ photo, className = '' }) {
+function PhotoArt({ photo, className = '', showOverlays = false }) {
   const rotation = photo.rotation ?? 0
   const sideways = Math.abs(rotation % 180) === 90
 
@@ -39,6 +39,7 @@ function PhotoArt({ photo, className = '' }) {
           </>
         )}
       </div>
+      {showOverlays && photo.overlays.map((overlay) => <ViewerOverlay key={overlay.id} overlay={overlay} />)}
     </div>
   )
 }
@@ -64,7 +65,7 @@ function BackHeader({ title, onBack, action }) {
   )
 }
 
-function StoryScreen({ data, onOpenPicker, onEdit, onBulk }) {
+function StoryScreen({ data, onOpenPicker, onEdit, onBulk, onView }) {
   const [selectingDay, setSelectingDay] = useState(null)
   const [selectedIds, setSelectedIds] = useState([])
   const usageFor = (photoId) => data.albums.filter((album) => album.playlist.includes(photoId))
@@ -114,7 +115,7 @@ function StoryScreen({ data, onOpenPicker, onEdit, onBulk }) {
                       {selectingDay === day ? 'やめる' : 'まとめて編集'}
                     </button>
                   )}
-                  <button type="button" onClick={() => {}}>
+                  <button type="button" onClick={() => onView(photos.map((photo) => photo.id), day)}>
                     この日をみる <b aria-hidden="true">›</b>
                   </button>
                 </div>
@@ -732,6 +733,49 @@ function CoverScreen({ album, photoMap, onBack, onChoose }) {
   return <div className="screen padded"><BackHeader title="表紙をえらぶ" onBack={onBack} /><p className="intro left">アイコンか、再生リストの写真をえらべます。</p><h2 className="cover-h">アイコン</h2><div className="cover-grid">{ALBUM_ICONS.map((icon) => <button type="button" key={icon} className={!album.cover && album.icon === icon ? 'chosen' : ''} aria-label={`アイコン ${icon}`} onClick={() => onChoose('', icon)}><div className="auto-cover icon-cover">{icon}</div></button>)}</div><h2 className="cover-h">写真</h2>{album.playlist.length ? <div className="cover-grid">{album.playlist.map((id) => { const photo = photoMap.get(id); return photo ? <button type="button" key={id} className={album.cover === id ? 'chosen' : ''} onClick={() => onChoose(id)}><PhotoArt photo={photo} /><b>{photo.label}</b></button> : null })}</div> : <p className="intro left">再生リストに写真が入ると、ここからえらべます。</p>}</div>
 }
 
+function ViewerOverlay({ overlay }) {
+  const ref = useRef(null)
+  const [width, setWidth] = useState(EDITOR_WIDTH)
+  useEffect(() => {
+    const parent = ref.current?.parentElement
+    if (!parent) return undefined
+    const update = () => setWidth(parent.getBoundingClientRect().width || EDITOR_WIDTH)
+    update(); const observer = new ResizeObserver(update); observer.observe(parent)
+    return () => observer.disconnect()
+  }, [])
+  return <span ref={ref} className="viewer-overlay" style={{ left: `${overlay.x}%`, top: `${overlay.y}%`, fontSize: overlay.size / 100 * width, color: overlay.color, transform: `translate(-50%, -50%) rotate(${overlay.rotation}deg)` }}>{overlay.text}</span>
+}
+
+function ViewerScreen({ ids, title, photoMap, onClose, onEdit, notify }) {
+  const [index, setIndex] = useState(0)
+  const [done, setDone] = useState(false)
+  const [auto, setAuto] = useState(false)
+  const swipe = useRef({ x: 0, y: 0 })
+  const next = () => index >= ids.length - 1 ? (setDone(true), setAuto(false)) : setIndex((value) => value + 1)
+  const prev = () => done ? setDone(false) : setIndex((value) => Math.max(0, value - 1))
+  useEffect(() => {
+    if (!auto || done) return undefined
+    const timer = window.setTimeout(next, 5000)
+    return () => window.clearTimeout(timer)
+  })
+  const stopOr = (action) => {
+    if (auto) { setAuto(false); notify('停止しました') } else action()
+  }
+  const photo = photoMap.get(ids[index])
+  return <div className="screen viewer" onTouchStart={(event) => { swipe.current = { x: event.touches[0].clientX, y: event.touches[0].clientY } }} onTouchEnd={(event) => { const touch = event.changedTouches[0]; const x = touch.clientX - swipe.current.x; const y = touch.clientY - swipe.current.y; if (y > 80 && Math.abs(y) > Math.abs(x)) onClose(); else if (x < -50) next(); else if (x > 50) prev() }}>
+    {done ? <div className="viewer-end"><span>✦</span><h1>おしまい</h1><p>見てくれて<br />ありがとうございます</p><button type="button" className="btn primary" onClick={() => { setIndex(0); setDone(false) }}>もういちど見る</button><button type="button" className="btn viewer-ghost" onClick={onClose}>とじる</button></div> : <>
+      <div className="progress-bars">{ids.map((id, position) => <i key={id} className={position <= index ? 'done' : ''} />)}</div>
+      <div className="viewer-head"><div><b>{title}</b><small>{index + 1} / {ids.length}</small></div><button type="button" className="v-edit" aria-label="この写真を編集" onClick={() => photo && onEdit(photo)}>✎ 編集</button><button type="button" onClick={() => setAuto((value) => !value)}>{auto ? 'Ⅱ' : '▶'} 自動再生</button><button type="button" aria-label="閉じる" onClick={onClose}>×</button></div>
+      {photo && <><PhotoArt photo={photo} className="viewer-photo" showOverlays /><button type="button" className="tap-zone left" aria-label="前へ" onClick={() => stopOr(prev)} /><button type="button" className="tap-zone right" aria-label="次へ" onClick={() => stopOr(next)} />{photo.caption && <p className="viewer-caption">{photo.caption}</p>}</>}
+    </>}
+  </div>
+}
+
+function SettingsScreen({ notify, onReset }) {
+  const [qr, setQr] = useState(false)
+  return <div className="screen padded has-nav"><PageHeader title="設定" en="settings" /><div className="settings-stack"><section><h2>まるごと保存</h2><p>ストーリーとアルバムのすべてを1つのファイルに書き出せます。</p><button type="button" className="btn soft" onClick={() => notify('この機能は開発予定です')}>ファイルに書き出す</button><button type="button" className="btn ghost" onClick={() => notify('この機能は開発予定です')}>ファイルから読み込む</button></section><section><h2>保存のようす</h2><div className="usage"><div><i /></div><b>32%使用中</b></div></section><section><h2>ホーム画面に追加</h2><p>共有メニューから「ホーム画面に追加」をしておくと安全です。</p><button type="button" className="btn soft" onClick={() => notify('共有メニューから『ホーム画面に追加』を選びます')}>手順をみる</button></section><section><h2>機種変更のひっこし</h2><p>スマホを買いかえるとき、QRコードと合言葉で引き継ぎます。</p><button type="button" className="btn soft qr-btn" onClick={() => setQr((value) => !value)}>{qr ? 'QRを閉じる' : '引き継ぎQRを出す'}</button>{qr && <div className="qr-card"><div className="qr-fake" /><p>あいことば：<b>tea-rose-0720</b></p></div>}<button type="button" className="btn ghost" onClick={() => notify('カメラでの読み取りを想定した機能です')}>QRを読み取る（新しいスマホ側）</button></section><section className="danger-zone"><h2>デモデータを初期状態に戻す</h2><p>テスト専用の機能です。</p><button type="button" className="btn danger" onClick={onReset}>初期状態に戻す</button></section></div></div>
+}
+
 function BottomNav({ screen, onChange }) {
   const items = [
     ['story', '⌂', 'ストーリー'],
@@ -762,6 +806,7 @@ function App() {
   const [confirmation, setConfirmation] = useState(null)
   const [selectedAlbumId, setSelectedAlbumId] = useState('a1')
   const [albumTab, setAlbumTab] = useState('playlist')
+  const [viewer, setViewer] = useState(null)
   const screenRef = useRef(screen)
 
   useEffect(() => {
@@ -938,6 +983,13 @@ function App() {
     }
   }
 
+  const openViewer = (ids, title, returnScreen = screen) => {
+    if (!ids.length) { setToast('まだ写真がありません'); return }
+    setViewer({ ids, title, returnScreen })
+    setScreen('viewer')
+    window.scrollTo(0, 0)
+  }
+
   return (
     <main className="stage">
       <div className="phone-shell">
@@ -969,6 +1021,7 @@ function App() {
             onOpenPicker={openPicker}
             onEdit={(photo) => startEditing([photo], 'story')}
             onBulk={(ids) => startEditing(ids.flatMap((id) => data.photos.find((photo) => photo.id === id) || []), 'story')}
+            onView={(ids, title) => openViewer(ids, title, 'story')}
           />
         ) : screen === 'albums' ? (
           <AlbumListScreen
@@ -976,7 +1029,7 @@ function App() {
             photoMap={photoMap}
             onNew={() => setScreen('album-new')}
             onEdit={(id) => { setSelectedAlbumId(id); setAlbumTab('playlist'); setScreen('album-edit') }}
-            onOpen={(album) => album.playlist.length ? undefined : setToast('まだ写真がありません')}
+            onOpen={(album) => openViewer(album.playlist, album.name, 'albums')}
             onCommit={commitData}
             notify={setToast}
           />
@@ -992,7 +1045,7 @@ function App() {
             onSettings={() => setScreen('album-settings')}
             onEditPhoto={(photo) => startEditing([photo], 'album-edit')}
             onCommit={commitData}
-            onOpen={() => {}}
+            onOpen={(ids, title) => openViewer(ids, title, 'album-edit')}
             notify={setToast}
           />
         ) : screen === 'album-settings' && selectedAlbum ? (
@@ -1020,6 +1073,30 @@ function App() {
             onChoose={async (cover, icon) => {
               if (await commitData((current) => ({ ...current, albums: current.albums.map((album) => album.id === selectedAlbum.id ? { ...album, cover, icon: icon || album.icon } : album) }))) setToast('表紙をえらびました')
             }}
+          />
+        ) : screen === 'viewer' && viewer ? (
+          <ViewerScreen
+            ids={viewer.ids}
+            title={viewer.title}
+            photoMap={photoMap}
+            onClose={() => setScreen(viewer.returnScreen)}
+            onEdit={(photo) => startEditing([photo], 'viewer')}
+            notify={setToast}
+          />
+        ) : screen === 'settings' ? (
+          <SettingsScreen
+            notify={setToast}
+            onReset={() => setConfirmation({
+              text: 'デモデータを初期状態に戻します。\n今までの操作内容は消えます。',
+              action: async () => {
+                try {
+                  await clearData()
+                  const initial = createInitialData()
+                  await saveData(initial)
+                  setData(initial); setViewer(null); setSelectedAlbumId('a1'); setConfirmation(null); setScreen('story'); setToast('初期状態に戻しました')
+                } catch { setConfirmation(null); setToast(SAVE_ERROR) }
+              },
+            })}
           />
         ) : (
           <div className="screen has-nav" />
