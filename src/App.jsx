@@ -14,6 +14,7 @@ const TEXT_COLORS = [
   '#FFFFFF', '#FAF6F2', '#F4E7E4', '#D8A5A2', '#FF6B6B', '#FF9F43', '#FFD93D',
   '#6BCB77', '#4D96FF', '#845EC2', '#E86AA3', '#A4B6A0', '#4A3A32', '#111111',
 ]
+const ALBUM_ICONS = ['📖', '🎬', '🎮', '🎤', '🎧', '📷', '✈', '🗻', '🌊', '🌸', '🍁', '⛄', '⭐', '🌙', '☕', '🍰', '🍞', '🍜', '🍚', '🍣', '🎁', '💄', '🐱', '🐾']
 
 function PhotoArt({ photo, className = '' }) {
   const rotation = photo.rotation ?? 0
@@ -51,14 +52,14 @@ function PageHeader({ title, en }) {
   )
 }
 
-function BackHeader({ title, onBack }) {
+function BackHeader({ title, onBack, action }) {
   return (
     <header className="back-header">
       <button type="button" aria-label="戻る" onClick={onBack}>
         ‹
       </button>
       <h1>{title}</h1>
-      <span aria-hidden="true" />
+      {action || <span aria-hidden="true" />}
     </header>
   )
 }
@@ -541,6 +542,196 @@ function ConfirmDialog({ text, onCancel, onConfirm }) {
   )
 }
 
+function useLongPressSort({ count, onMove, onFinish }) {
+  const [activeId, setActiveId] = useState('')
+  const activeRef = useRef('')
+  const timerRef = useRef(null)
+  const pointerRef = useRef(null)
+  const suppressUntil = useRef(0)
+
+  const clearTimer = () => {
+    if (timerRef.current !== null) window.clearTimeout(timerRef.current)
+    timerRef.current = null
+  }
+  const finish = (element, pointerId) => {
+    clearTimer()
+    if (activeRef.current) {
+      suppressUntil.current = performance.now() + 500
+      activeRef.current = ''
+      setActiveId('')
+      document.body.classList.remove('pointer-sorting')
+      onFinish()
+    }
+    if (element?.hasPointerCapture(pointerId)) element.releasePointerCapture(pointerId)
+    pointerRef.current = null
+  }
+  useEffect(() => () => {
+    clearTimer()
+    document.body.classList.remove('pointer-sorting')
+  }, [])
+
+  return {
+    activeId,
+    suppressClick: () => performance.now() < suppressUntil.current,
+    bind: (id) => ({
+      onPointerDown: (event) => {
+        if (count <= 1 || event.button !== 0 || event.target.closest('[data-no-sort]')) return
+        clearTimer()
+        pointerRef.current = { id, pointerId: event.pointerId, x: event.clientX, y: event.clientY, element: event.currentTarget }
+        timerRef.current = window.setTimeout(() => {
+          if (!pointerRef.current || pointerRef.current.pointerId !== event.pointerId) return
+          activeRef.current = id
+          setActiveId(id)
+          document.body.classList.add('pointer-sorting')
+          try { event.currentTarget.setPointerCapture(event.pointerId) } catch { /* no-op */ }
+        }, 300)
+      },
+      onPointerMove: (event) => {
+        const pointer = pointerRef.current
+        if (!pointer || pointer.pointerId !== event.pointerId) return
+        if (!activeRef.current) {
+          if (Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) > 8) {
+            clearTimer(); pointerRef.current = null
+          }
+          return
+        }
+        event.preventDefault()
+        const targetId = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-sort-id]')?.dataset.sortId
+        if (targetId && targetId !== activeRef.current) onMove(activeRef.current, targetId)
+        if (event.clientY < 72) window.scrollBy(0, -14)
+        else if (event.clientY > window.innerHeight - 72) window.scrollBy(0, 14)
+      },
+      onPointerUp: (event) => finish(event.currentTarget, event.pointerId),
+      onPointerCancel: (event) => finish(event.currentTarget, event.pointerId),
+    }),
+  }
+}
+
+function moveItem(items, fromId, toId) {
+  const next = [...items]
+  const from = next.findIndex((item) => (typeof item === 'string' ? item : item.id) === fromId)
+  const to = next.findIndex((item) => (typeof item === 'string' ? item : item.id) === toId)
+  if (from < 0 || to < 0 || from === to) return items
+  const [item] = next.splice(from, 1)
+  next.splice(to, 0, item)
+  return next
+}
+
+function AlbumListScreen({ data, photoMap, onNew, onEdit, onOpen, onCommit, notify }) {
+  const [albums, setAlbums] = useState(data.albums)
+  useEffect(() => setAlbums(data.albums), [data.albums])
+  const sorter = useLongPressSort({
+    count: albums.length,
+    onMove: (from, to) => setAlbums((current) => moveItem(current, from, to)),
+    onFinish: async () => {
+      if (await onCommit({ ...data, albums })) notify('並び替えました')
+      else setAlbums(data.albums)
+    },
+  })
+  return (
+    <div className="screen padded has-nav">
+      <PageHeader title="わたしのアルバム" en="my albums" />
+      <div className="album-grid">
+        {albums.map((album) => {
+          const cover = album.cover ? photoMap.get(album.cover) : null
+          return (
+            <article
+              key={album.id}
+              data-sort-id={album.id}
+              className={`album-sort-item ${sorter.activeId === album.id ? 'sorting' : ''}`}
+              {...sorter.bind(album.id)}
+            >
+              <button type="button" className="album-card" onClick={(event) => {
+                if (sorter.suppressClick()) { event.preventDefault(); return }
+                onOpen(album)
+              }}>
+                {cover ? <PhotoArt photo={cover} /> : <div className="album-empty icon-cover">{album.icon || '📖'}</div>}
+                <span className="album-tape" />
+              </button>
+              <div className="album-info">
+                <button type="button" onClick={() => onOpen(album)}><b>{album.name}</b><small>{album.playlist.length}ページ</small></button>
+                <button type="button" className="album-edit-button" data-no-sort aria-label={`${album.name}を編集`} onClick={() => onEdit(album.id)}>編集</button>
+              </div>
+            </article>
+          )
+        })}
+      </div>
+      <button type="button" className="new-album-btn" onClick={onNew}>＋ 新しいアルバムをつくる</button>
+    </div>
+  )
+}
+
+function NewAlbumScreen({ onBack, onCreate }) {
+  const [name, setName] = useState('')
+  const [icon, setIcon] = useState('📖')
+  return (
+    <div className="screen padded">
+      <BackHeader title="新しいアルバム" onBack={onBack} />
+      <p className="intro left">名前とアイコンを決めればOK。<br />ページはストーリーにあげた写真からえらんで入れます。<br />表紙はあとから写真にも変えられます。</p>
+      <div className="form-card">
+        <label>アルバム名<input value={name} onChange={(event) => setName(event.target.value)} /></label>
+        <label>アイコン</label>
+        <div className="icon-picks">{ALBUM_ICONS.map((item) => <button type="button" key={item} className={icon === item ? 'on' : ''} onClick={() => setIcon(item)}>{item}</button>)}</div>
+      </div>
+      <div className="fixed-actions"><button type="button" className="btn ghost" onClick={onBack}>やめる</button><button type="button" className="btn primary" onClick={() => onCreate(name.trim() || 'あたらしいアルバム', icon)}>つくる</button></div>
+    </div>
+  )
+}
+
+function AlbumEditScreen({ album, photos, photoMap, initialTab, onBack, onSettings, onEditPhoto, onCommit, onOpen, notify }) {
+  const [tab, setTab] = useState(initialTab)
+  const [selected, setSelected] = useState([])
+  const [playlist, setPlaylist] = useState(album.playlist)
+  useEffect(() => setPlaylist(album.playlist), [album.playlist])
+  const commitPlaylist = async (next, toast) => {
+    const ok = await onCommit((data) => ({ ...data, albums: data.albums.map((item) => item.id === album.id ? { ...item, playlist: next, cover: next.includes(item.cover) ? item.cover : '' } : item) }))
+    if (ok) {
+      setPlaylist(next)
+      if (toast) notify(toast)
+    } else setPlaylist(album.playlist)
+  }
+  const sorter = useLongPressSort({ count: playlist.length, onMove: (from, to) => setPlaylist((current) => moveItem(current, from, to)), onFinish: () => commitPlaylist(playlist) })
+  const addSelected = async () => {
+    if (!selected.length) { notify('写真をえらんでください'); return }
+    await commitPlaylist([...playlist, ...selected.filter((id) => !playlist.includes(id))], 'リストに追加しました')
+    setSelected([])
+  }
+  return (
+    <div className="screen album-edit-screen">
+      <BackHeader title={album.name} onBack={onBack} action={<button type="button" aria-label="アルバム設定" onClick={onSettings}>⚙</button>} />
+      <div className="tabs"><button type="button" className={tab === 'playlist' ? 'active' : ''} onClick={() => setTab('playlist')}>再生リスト（{playlist.length}）</button><button type="button" className={tab === 'choose' ? 'active' : ''} onClick={() => setTab('choose')}>ストーリーからえらぶ（{photos.length}）</button></div>
+      {tab === 'playlist' ? (
+        <>
+          <p className="tab-help">ここに入れた写真だけが「ひらく」で再生されます。<br />つまみで並び替え、×で外せます。ストーリーからは消えません。</p>
+          {playlist.length ? <div className="playlist">{playlist.map((id, index) => {
+            const photo = photoMap.get(id); if (!photo) return null
+            return <div key={id} data-sort-id={id} className={`playlist-row ${sorter.activeId === id ? 'sorting' : ''}`} {...sorter.bind(id)}><span className="handle">≡</span><button type="button" data-no-sort onClick={() => onEditPhoto(photo)}><PhotoArt photo={photo} /></button><b>{index + 1}</b><p>{photo.caption}</p><button type="button" data-no-sort aria-label="リストから外す" onClick={() => commitPlaylist(playlist.filter((item) => item !== id), 'リストから外しました')}>×</button></div>
+          })}</div> : <div className="large-empty"><span>☕</span><p>まだ空です。<br />「ストーリーからえらぶ」で<br />見せたい写真を入れましょう。</p></div>}
+          <div className="fixed-actions single"><button type="button" className="btn primary" onClick={() => playlist.length ? onOpen(playlist, album.name) : notify('まだ写真がありません')}>ひらく</button></div>
+        </>
+      ) : (
+        <>
+          <p className="tab-help">ストーリーにあげた写真の全部がここに出ます。<br />丸をタップで選んで、下のボタンでこのアルバムへ追加します。</p>
+          <div className="choose-days">{DAYS.map((day) => <section key={day}><h2>{day}</h2><div className="choose-grid">{photos.filter((photo) => photo.day === day).map((photo) => {
+            const inList = playlist.includes(photo.id); const chosen = selected.includes(photo.id)
+            return <button type="button" key={photo.id} className={chosen ? 'selected' : ''} onClick={() => inList ? commitPlaylist(playlist.filter((id) => id !== photo.id), 'リストから外しました') : setSelected((current) => chosen ? current.filter((id) => id !== photo.id) : [...current, photo.id])}><PhotoArt photo={photo} />{inList ? <span className="in-list">リスト内 ×</span> : <i>{chosen ? '✓' : ''}</i>}</button>
+          })}</div></section>)}</div>
+          <div className="fixed-actions single"><button type="button" className="btn primary" onClick={addSelected}>{selected.length ? `${selected.length}件をリストに追加` : 'リストに追加'}</button></div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function AlbumSettingsScreen({ album, onBack, onSaveName, onCover, onDelete }) {
+  const [name, setName] = useState(album.name)
+  return <div className="screen padded"><BackHeader title="アルバム設定" onBack={onBack} /><div className="settings-stack"><section><h2>アルバム名変更</h2><input value={name} onChange={(event) => setName(event.target.value)} /><button type="button" className="btn primary" onClick={() => onSaveName(name.trim() || album.name)}>名前を保存する</button></section><section><h2>表紙設定</h2><p>アイコンか、再生リストの写真をえらべます。</p><button type="button" className="btn soft" onClick={onCover}>表紙をえらぶ</button></section><section className="danger-zone"><h2>アルバム削除</h2><p>写真はストーリーに残ります。</p><button type="button" className="btn danger" onClick={onDelete}>このアルバムを削除</button></section></div></div>
+}
+
+function CoverScreen({ album, photoMap, onBack, onChoose }) {
+  return <div className="screen padded"><BackHeader title="表紙をえらぶ" onBack={onBack} /><p className="intro left">アイコンか、再生リストの写真をえらべます。</p><h2 className="cover-h">アイコン</h2><div className="cover-grid">{ALBUM_ICONS.map((icon) => <button type="button" key={icon} className={!album.cover && album.icon === icon ? 'chosen' : ''} aria-label={`アイコン ${icon}`} onClick={() => onChoose('', icon)}><div className="auto-cover icon-cover">{icon}</div></button>)}</div><h2 className="cover-h">写真</h2>{album.playlist.length ? <div className="cover-grid">{album.playlist.map((id) => { const photo = photoMap.get(id); return photo ? <button type="button" key={id} className={album.cover === id ? 'chosen' : ''} onClick={() => onChoose(id)}><PhotoArt photo={photo} /><b>{photo.label}</b></button> : null })}</div> : <p className="intro left">再生リストに写真が入ると、ここからえらべます。</p>}</div>
+}
+
 function BottomNav({ screen, onChange }) {
   const items = [
     ['story', '⌂', 'ストーリー'],
@@ -569,6 +760,8 @@ function App() {
   const [editPhoto, setEditPhoto] = useState(null)
   const [editReturnScreen, setEditReturnScreen] = useState('story')
   const [confirmation, setConfirmation] = useState(null)
+  const [selectedAlbumId, setSelectedAlbumId] = useState('a1')
+  const [albumTab, setAlbumTab] = useState('playlist')
   const screenRef = useRef(screen)
 
   useEffect(() => {
@@ -720,6 +913,31 @@ function App() {
     })
   }
 
+  const commitData = async (nextOrUpdater) => {
+    const nextData = typeof nextOrUpdater === 'function' ? nextOrUpdater(data) : nextOrUpdater
+    try {
+      await saveData(nextData)
+      setData(nextData)
+      return true
+    } catch {
+      setToast(SAVE_ERROR)
+      return false
+    }
+  }
+
+  const photoMap = useMemo(() => new Map((data?.photos || []).map((photo) => [photo.id, photo])), [data?.photos])
+  const selectedAlbum = data?.albums.find((album) => album.id === selectedAlbumId)
+
+  const createAlbum = async (name, icon) => {
+    const album = { id: createId('album'), name, playlist: [], cover: '', icon }
+    if (await commitData({ ...data, albums: [...data.albums, album] })) {
+      setSelectedAlbumId(album.id)
+      setAlbumTab('choose')
+      setScreen('album-edit')
+      setToast('アルバムをつくりました')
+    }
+  }
+
   return (
     <main className="stage">
       <div className="phone-shell">
@@ -752,11 +970,62 @@ function App() {
             onEdit={(photo) => startEditing([photo], 'story')}
             onBulk={(ids) => startEditing(ids.flatMap((id) => data.photos.find((photo) => photo.id === id) || []), 'story')}
           />
+        ) : screen === 'albums' ? (
+          <AlbumListScreen
+            data={data}
+            photoMap={photoMap}
+            onNew={() => setScreen('album-new')}
+            onEdit={(id) => { setSelectedAlbumId(id); setAlbumTab('playlist'); setScreen('album-edit') }}
+            onOpen={(album) => album.playlist.length ? undefined : setToast('まだ写真がありません')}
+            onCommit={commitData}
+            notify={setToast}
+          />
+        ) : screen === 'album-new' ? (
+          <NewAlbumScreen onBack={() => setScreen('albums')} onCreate={createAlbum} />
+        ) : screen === 'album-edit' && selectedAlbum ? (
+          <AlbumEditScreen
+            album={selectedAlbum}
+            photos={data.photos}
+            photoMap={photoMap}
+            initialTab={albumTab}
+            onBack={() => setScreen('albums')}
+            onSettings={() => setScreen('album-settings')}
+            onEditPhoto={(photo) => startEditing([photo], 'album-edit')}
+            onCommit={commitData}
+            onOpen={() => {}}
+            notify={setToast}
+          />
+        ) : screen === 'album-settings' && selectedAlbum ? (
+          <AlbumSettingsScreen
+            album={selectedAlbum}
+            onBack={() => setScreen('album-edit')}
+            onSaveName={async (name) => {
+              if (await commitData((current) => ({ ...current, albums: current.albums.map((album) => album.id === selectedAlbum.id ? { ...album, name } : album) }))) setToast('名前を変えました')
+            }}
+            onCover={() => setScreen('cover')}
+            onDelete={() => setConfirmation({
+              text: 'このアルバムだけが消えます。\n中の写真はストーリーに残ります。',
+              action: async () => {
+                if (await commitData((current) => ({ ...current, albums: current.albums.filter((album) => album.id !== selectedAlbum.id) }))) {
+                  setConfirmation(null); setScreen('albums'); setToast('アルバムを削除しました')
+                }
+              },
+            })}
+          />
+        ) : screen === 'cover' && selectedAlbum ? (
+          <CoverScreen
+            album={selectedAlbum}
+            photoMap={photoMap}
+            onBack={() => setScreen('album-settings')}
+            onChoose={async (cover, icon) => {
+              if (await commitData((current) => ({ ...current, albums: current.albums.map((album) => album.id === selectedAlbum.id ? { ...album, cover, icon: icon || album.icon } : album) }))) setToast('表紙をえらびました')
+            }}
+          />
         ) : (
           <div className="screen has-nav" />
         )}
 
-        {data && !['picker', 'editor'].includes(screen) && <BottomNav screen={screen} onChange={setScreen} />}
+        {data && ['story', 'albums', 'settings'].includes(screen) && <BottomNav screen={screen} onChange={setScreen} />}
         {toast && (
           <div className="toast" role="status">
             {toast}
