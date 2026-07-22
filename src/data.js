@@ -56,3 +56,27 @@ export function createInitialData() {
 export function createId(prefix) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 }
+
+export function normaliseData(data) {
+  const normalised = {
+    ...data,
+    albums: (data.albums || []).map((album) => ({
+      icon: '📖',
+      ...album,
+      cover: album.cover === 'auto' ? '' : album.cover || '',
+    })),
+  }
+
+  if (normalised.overlaySizeUnit === 'percent') return normalised
+  return {
+    ...normalised,
+    overlaySizeUnit: 'percent',
+    photos: normalised.photos.map((photo) => ({
+      ...photo,
+      overlays: photo.overlays.map((overlay) => ({
+        ...overlay,
+        size: (overlay.size / EDITOR_WIDTH) * 100,
+      })),
+    })),
+  }
+}

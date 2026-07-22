@@ -80,13 +80,54 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--sage); outl
 .btn:disabled { opacity: .45; }
 .bulk-bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: 76px; width: min(92vw, 380px); display: flex; gap: 10px; z-index: 6; }
 .bulk-bar .btn { flex: 1; }
+.editor-screen { background: var(--night); color: var(--cream); padding: 0 58px 152px 10px; position: relative; }
+.editor-top { height: 58px; display: flex; align-items: center; justify-content: space-between; }
+.editor-top button { border: 0; background: transparent; color: #fff; font-size: 25px; }
+.editor-top span { font-size: 13px; }
+.editor-work { touch-action: none; position: relative; width: min(100%, 45vh); margin: 0 auto; aspect-ratio: 3 / 4; }
+.editor-photo { width: 100%; height: 100%; border-radius: 16px; }
+.editable-overlay { touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab; position: absolute; z-index: 3; background: transparent; border: 1px dashed transparent; font-weight: 700; max-width: 90%; white-space: nowrap; padding: 3px; }
+.editable-overlay.chosen { border-color: #fff; }
+.editor-tools { position: absolute; right: 7px; top: 62px; display: grid; gap: 7px; }
+.editor-tools button { width: 46px; border: 0; background: transparent; color: #fff; display: grid; justify-items: center; gap: 2px; }
+.editor-tools i { font-style: normal; width: 34px; height: 34px; border-radius: 50%; background: #faf6f229; display: grid; place-items: center; font-weight: 700; }
+.editor-tools small { font-size: 7px; }
+.text-controls { position: absolute; z-index: 5; left: 8px; right: 8px; bottom: 91px; background: var(--cream); color: var(--tea); border-radius: 12px; padding: 8px; }
+.text-controls > input { width: 100%; border: 1px solid #d5c7be; border-radius: 8px; padding: 7px; }
+.control-row { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; padding-top: 7px; }
+.color-picks { display: flex; flex: 1; flex-wrap: wrap; gap: 6px; }
+.color-picks button { width: 24px; height: 24px; border-radius: 50%; border: 2px solid #aaa; }
+.color-picks button.on { outline: 2px solid var(--tea); }
+.gesture-hint { width: 100%; font-size: 10px; color: #806c64; }
+.text-panel-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.text-delete { border: 0; color: #9c463d; background: transparent; font-size: 11px; }
+.text-done { border: 0; border-radius: 8px; background: var(--rose); padding: 7px 13px; font-size: 11px; font-weight: 700; }
+.caption-bar { position: absolute; left: 8px; right: 8px; bottom: 18px; display: flex; gap: 7px; }
+.caption-bar input { min-width: 0; flex: 1; border: 1px solid rgba(255,255,255,.25); background: #ffffff1f; color: #fff; border-radius: 22px; padding: 11px; }
+.caption-bar input::placeholder { color: #ddd; }
+.post-btn { border: 0; background: var(--rose); border-radius: 22px; font-weight: 700; padding: 8px 12px; font-size: 11px; }
+.delete-photo { position: absolute; bottom: 1px; left: 12px; border: 0; background: transparent; color: #d9aaa4; font-size: 10px; }
+.photo-art.editor-photo { overflow: visible; }
+.photo-art.editor-photo::after { display: none; }
+.photo-art.editor-photo .photo-media { border-radius: 14px; }
+.photo-art.editor-photo img { object-fit: contain; }
+.photo-art.editor-photo:has(img) { background: transparent !important; }
 .toast { position: absolute; z-index: 60; left: 50%; bottom: 85px; transform: translate(-50%); background: var(--tea); color: #fff; padding: 10px 15px; border-radius: 9px; font-size: 12px; white-space: nowrap; }
+.dialog-back { position: absolute; z-index: 70; inset: 0; background: #2a211e8c; display: grid; place-items: center; padding: 24px; }
+.dialog { width: 100%; max-width: 340px; background: var(--cream); border-radius: 15px; padding: 22px; }
+.dialog h2 { font-family: "Shippori Mincho", Georgia, serif; margin: 0; }
+.dialog p { white-space: pre-line; font-size: 13px; line-height: 1.9; }
+.dialog > div { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 18px; }
+.btn.danger { background: #79554c; color: #fff; }
 
 @media (min-width: 520px) {
   .stage { padding: 28px 0; }
   .phone-shell { width: 400px; min-height: 820px; border-radius: 24px; box-shadow: 0 6px 30px #4a3a3229; }
   .screen { min-height: 820px; }
   .bottom-nav, .fixed-actions { position: absolute; }
+  .editor-work { width: min(100%, 442px); }
+  .editor-screen { min-height: 820px; }
+  .dialog-back { border-radius: 24px; }
   .stage::before { content: "TEA ROSE · interactive prototype"; position: fixed; left: 28px; top: 28px; font-family: Georgia, serif; letter-spacing: .16em; color: #796b65; font-size: 12px; }
 }
 
